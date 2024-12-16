@@ -2,9 +2,11 @@ package org.example;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -18,8 +20,8 @@ import java.util.stream.Collectors;
  */
 public class DocumentManager {
 
-    private final Map<String, Document> documentStorage = new HashMap<>();
-    private static long idCounter = 1;
+    private final Map<String, Document> documentStorage = new ConcurrentHashMap<>(); //ConcurrentHashMap will help in future
+
     /**
      * Implementation of this method should upsert the document to your storage
      * And generate unique id if it does not exist, don't change [created] field
@@ -28,8 +30,10 @@ public class DocumentManager {
      * @return saved document
      */
     public Document save(Document document) {
+        validateDocument(document); // added fields validation
+
         if (document.getId() == null || document.getId().isEmpty()) {
-            String newId = "doc-" + idCounter++;
+            String newId = UUID.randomUUID().toString();
             document = Document.builder()
                     .id(newId)
                     .title(document.getTitle())
@@ -45,7 +49,7 @@ public class DocumentManager {
                         .title(document.getTitle())
                         .content(document.getContent())
                         .author(document.getAuthor())
-                        .created(document.getCreated())
+                        .created(existingDocument.getCreated())
                         .build();
             }
         }
@@ -55,7 +59,9 @@ public class DocumentManager {
     }
 
     /**
-     * Implementation this method should find documents which match with request
+     * Implementation of this method should find documents which match with request
+     * -----
+     * Method checks every element of storage to match criteria
      *
      * @param request - search request, each field could be null
      * @return list matched documents
@@ -77,6 +83,22 @@ public class DocumentManager {
         return Optional.ofNullable(documentStorage.get(id));
     }
 
+    /**
+     * Deletes a document by id
+     *
+     * @param id - document id
+     * @return boolean
+     */
+    public boolean delete(String id) {
+        return documentStorage.remove(id) != null;
+    }
+
+    /**
+     *
+     * @param document - document content and author data
+     * @param request - search request, each field could be null
+     * @return - boolean
+     */
     private boolean matchesWithCriteria(Document document, SearchRequest request) {
         if (request.getTitlePrefixes() != null && request.getTitlePrefixes().stream()
                 .noneMatch(prefix -> document.getTitle().contains(prefix))) {
@@ -89,7 +111,7 @@ public class DocumentManager {
         }
 
         if (request.getAuthorIds() != null && request.getAuthorIds().stream()
-                .noneMatch(authorId -> document.getAuthor().getId().equals(authorId))) {
+                .noneMatch(authorId -> document.getAuthor().id().equals(authorId))) {
             return false;
         }
 
@@ -104,6 +126,29 @@ public class DocumentManager {
         return true;
     }
 
+    /**
+     * Validates fields of document not to be null or empty
+     *
+     * @param document - document content and author data
+     */
+    private void validateDocument(Document document) {
+        if (document.getTitle() == null || document.getTitle().isEmpty()) {
+            throw new IllegalArgumentException("Title cannot be null or empty");
+        }
+        if (document.getContent() == null || document.getContent().isEmpty()) {
+            throw new IllegalArgumentException("Content cannot be null or empty");
+        }
+        if (document.getAuthor() == null) {
+            throw new IllegalArgumentException("Author cannot be null");
+        }
+        if (document.getAuthor().id() == null || document.getAuthor().id().isEmpty()) {
+            throw new IllegalArgumentException("Author ID cannot be null or empty");
+        }
+        if (document.getCreated() == null) {
+            throw new IllegalArgumentException("Created timestamp cannot be null");
+        }
+    }
+
     @Data
     @Builder
     public static class SearchRequest {
@@ -114,20 +159,40 @@ public class DocumentManager {
         private Instant createdTo;
     }
 
-    @Data
-    @Builder
+    // Changed to be immutable
+    @Getter
     public static class Document {
-        private String id;
-        private String title;
-        private String content;
-        private Author author;
-        private Instant created;
+        private final String id;
+        private final String title;
+        private final String content;
+        private final Author author;
+        private final Instant created;
+
+        @Builder
+        private Document(String id, String title, String content, Author author, Instant created) {
+            // ID validation happens only if it's not null
+            if (id != null && id.isEmpty()) {
+                throw new IllegalArgumentException("ID cannot be empty");
+            }
+            this.id = id;
+            this.title = Objects.requireNonNull(title, "Title cannot be null");
+            this.content = Objects.requireNonNull(content, "Content cannot be null");
+            this.author = Objects.requireNonNull(author, "Author cannot be null");
+            this.created = Objects.requireNonNull(created, "Created date cannot be null");
+        }
     }
 
-    @Data
-    @Builder
-    public static class Author {
-        private String id;
-        private String name;
+    // Changed to be immutable
+    public record Author(String id, String name) {
+        @Builder
+        public Author {
+            if (id == null || id.isEmpty()) {
+                throw new IllegalArgumentException("Author ID cannot be null or empty");
+            }
+            if (name == null || name.isEmpty()) {
+                throw new IllegalArgumentException("Author name cannot be null or empty");
+            }
+        }
+
     }
 }
